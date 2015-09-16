@@ -1,0 +1,18 @@
+body {
+  font-family: sans-serif;
+};
+.postheader {
+  display: block;
+  float: left;
+  clear: right;
+  width: 49%;
+  margin-left: 10px;
+  font: normal 12px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+  padding-left: 15px;
+}
+.post {
+  list-style: none;
+  margin-bottom: 10px;
+  width: 100%;
+  color: #3e3e3e;
+};
