@@ -4,9 +4,18 @@ import os,sys
 import urllib2
 import urllib
 
-START_URL = 'http://avforum.no/forum/showthread.php?t=126778'
 
-BASE = 'http://avforum.no/forum/'
+# FIXME:
+# ======
+#
+# - Implement argparse
+# - Download "vedlagte miniatyrbilder". See post 77
+# - Change download to fetch local cache first, then try server
+# - Do progress printing to stderr
+#
+
+
+START_URL = 'http://avforum.no/forum/showthread.php?t=126778'
 
 USE_TMP=True
 SLURP='tmp/'
@@ -51,14 +60,14 @@ def clear():
 def download_page(page,url=None):
 
     if not url:
-        url = BASE + 'showthread.php?t=' + str(threadid)
+        url = base + 'showthread.php?t=' + str(threadid)
         if page:
             url += '&page=%s' %(page)
 
     if not USE_TMP:
         data = urllib2.urlopen(url).read()
     else:
-        with open(SLURP + 'page_%03i.html' %(page),'rb') as f:
+        with open(SLURP + 'page_%03i.html' %(page),'r') as f:
             data = f.read()
 
     tree = html.fromstring(data)
@@ -90,7 +99,7 @@ class FakeUrl(object):
 
 def download_attachment(att):
 
-    url = BASE + 'attachment.php?attachmentid=' + str(att)
+    url = base + 'attachment.php?attachmentid=' + str(att)
 
     if not USE_TMP:
         req = urllib2.urlopen(url)
@@ -103,7 +112,7 @@ def download_attachment(att):
     else:
 
         with open(SLURP + str(att), 'rb') as f:
-            header = f.read().decode('utf-8')
+            header = f.read()
             req = FakeUrl(header)
 
         return req
@@ -184,6 +193,8 @@ def parse_page(tree):
     return posts
 
 
+print "vGrab v1.0 -- vBulletin thread grabber\nCopyright (C) 2015 Svein Seldal <sveinse@seldal.com>\nLicensed under GPL3.0\n"
+
 
 print "\nDownloading first page..."
 
@@ -193,6 +204,11 @@ if not os.path.exists(SLURP):
 
 # Hent inn forste side
 tree = download_page(0,START_URL)
+
+# base
+t=tree.xpath('//head/base')[0]
+base=t.attrib['href']
+print "    BASE:", base
 
 # Tittel og ID
 t=tree.xpath('//*[@id="pagetitle"]/h1/span/a')[0]
@@ -318,7 +334,8 @@ for post in post_list:
 
 print
 
-
+# Manual adds
+image_fetchlist['images/misc/quote-left.png'] = True
 
 print "\nDownloading icons..."
 num = 0
@@ -333,7 +350,7 @@ for image in image_fetchlist:
     if not os.path.exists(path[0]):
         os.makedirs(path[0])
 
-    url = BASE + image
+    url = base + image
     #print url
     try:
         req = urllib2.urlopen(url)
@@ -371,16 +388,16 @@ for (att,post) in attachment_fetchlist.items():
 
     try:
         req = download_attachment(att)
+
         header = req.info()
+        length = int(header.getheader('Content-Length'))
+        #ctype = header.getheader('Content-Type')
 
-        length = header.getheader('Content-Length')
         disp = header.getheader('Content-disposition')
-        ctype = header.getheader('Content-Type')
-
         m=re.search(r'filename="(.*)"', disp)
         if not m:
             raise Exception("Missing filename")
-        filename = urllib.unquote(m.group(1))
+        filename = urllib.unquote(m.group(1)).decode('utf-8')
 
         if filename in filenames:
             filename = str(att) + '_' + filename
@@ -390,12 +407,24 @@ for (att,post) in attachment_fetchlist.items():
         attachments[att] = filename
 
         fname = 'attachments/' + filename
+
         if not os.path.exists(fname):
+            if not USE_TMP:
+                data = req.read()
+            else:
+                # Hack. Should rather retry downloading the file
+                clear()
+                print "    *** Missing local file "+fname
+                data = ' '*length
 
-            data = req.read()
-            if len(data) != int(length):
-                raise Exception("Missing data from server, want %s bytes, got %s" %(length,len(data)))
+        else:
+            with open(fname,'rb') as f:
+                data=f.read()
 
+        if len(data) != length:
+            raise Exception("Missing data from server/file, want %s bytes, got %s" %(length,len(data)))
+
+        if not USE_TMP:
             with open(fname, 'wb') as f:
                 f.write(data)
 
@@ -410,7 +439,7 @@ for (att,post) in attachment_fetchlist.items():
 
     except IOError as e:
         clear()
-        print "    *** Failed to read (%s) attachment %s in post %s" %(e.errno,att,pnum)
+        print "    *** Missing local attachment %s in post %s" %(att,pnum)
         failed += 1
 
 progress(num, maxnum)
@@ -439,37 +468,15 @@ for post in post_list:
 
     data = posts[post]
 
-    div = etree.SubElement(html, 'li')
-    div.attrib['class'] = 'post'
-
-    header = etree.SubElement(div, 'div')
-    header.attrib['class'] = 'postheader'
-
-    t_date = etree.SubElement(header, 'span')
-    t_date.text = data['date'] + ' ' + data['time']
-    t_date.attrib['class'] = 'postdate'
-
-    t_nr = etree.SubElement(header, 'span')
-    t_nr.text = data['num'] + ' / ' + str(data['id'])
-    t_nr.attrib['class'] = 'postid'
-
-    details = etree.SubElement(div, 'div')
-    details.attrib['class'] = 'postmain'
-
-    t_user = etree.SubElement(details, 'div')
-    t_user.text = data['user']
-    t_user.attrib['class'] = 'postuser'
-
-    body = etree.SubElement(details, 'div')
-    body.attrib['class'] = 'postbody'
-
     if 'title' in data:
-        t_title = etree.SubElement(body, 'h2')
-        t_title.text = title
-
+        data['title'] = '<h2 class="posttitle">' + data['title'] + '</h2>'
+    else:
+        data['title'] = ''
 
     # WASH links
     main = data['main']
+    main.tag = 'div'
+    #main.attrib['class'] = 'postcontent'
 
     # Find all images
     images = main.xpath('.//img')
@@ -481,6 +488,13 @@ for post in post_list:
             iid=int(m.group(1))
             if iid in attachments:
                 src = 'attachments/' + attachments[iid]
+            elif iid in attachment_fetchlist:
+                src = 'missing-image/' + str(iid)
+            else:
+                src = 'dead-link/' + str(iid)
+
+        #clear()
+        #print src
 
         img.attrib['src'] = src
         if src.startswith('http://'):
@@ -515,59 +529,57 @@ for post in post_list:
             a_ext += 1
         a_count += 1
 
-    body.append(main)
+    data['main'] = etree.tostring(main,encoding='utf-8').replace('&#13;','').decode('utf-8')
 
-    etree.SubElement(body, 'hr')
-
-    if num > 2:
-        break
+    data['html'] = u'''
+<li class="post">
+  <div class="posthead">
+    <span class="postdate">{date} {time}</span>
+    <span class="postid">{id} - {num}</span>
+  </div>
+  <div class="postdetails">
+    <div class="userinfo">
+      <div class="user">{user}</div>
+    </div>
+    <div class="postbody">
+      {title}
+      {main}
+    </div>
+  </div>
+</li>
+    '''.format(**data)
 
 print
 print '    IMAGES: %s, where %s external' %(img_count,img_ext)
 print '    LINKS : %s, where %s external' %(a_count,a_ext)
 
 
+print "\nWriting web data..."
+num = 0
 
 with open('midas.html','w') as f:
     f.write(u'''<html lang="no">
 <head>
-    <meta charset="utf-8">
+  <meta charset="utf-8">
 
-    <link href="vgrab.css" rel="stylesheet" />
+  <link href="vgrab.css" rel="stylesheet" />
 
-    <title>%s</title>
+  <title>{title}</title>
 </head>
 
 <body>
-    <h1>%s</h1>
+  <h1>{title}</h1>
+    <ol class="posts">
 
-''' %('',''))
-    f.write(etree.tostring(html))
-    f.write('''
+'''.format(title=title).encode('utf-8'))
+    for post in post_list:
+        num += 1
+        progress(num, post_count)
+        f.write(posts[post]['html'].encode('utf-8'))
+    f.write(u'''
+
+    </ol>
 
 </body>
 </html>
-''')
-
-
-# Output object
-#html = html.Element('html')
-#html.attrib['lang'] = 'no'
-#head = etree.SubElement(html, 'head')
-#title = etree.SubElement(head, 'title')
-#title.text = 'Some title'
-#body = etree.SubElement(html, 'body')
-#bdiv = etree.SubElement(body, 'div')
-
-    #div = etree.SubElement(bdiv, 'div')
-
-    #p = e.xpath('*/span[contains(@class, "postdate")]')
-    #if len(p):
-    #    d = p[0].xpath('*/span[contains(@class, "date")]')
-    #    print d
-    #    #m = re.search(r'(\d\d-\d\d-\d\d\d\d).*(\d\d:\d\d)', p[0].text)
-    #    #lprint(p[0])
-    #    #print p[0].text
-    #postdate = p[0].text
-    #print postdate
-    #print p
+'''.encode('utf-8'))

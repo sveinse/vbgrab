@@ -1,18 +1,366 @@
 body {
   font-family: sans-serif;
-};
-.postheader {
+  font: 13px Verdana,Arial,Tahoma,Calibri,Geneva,sans-serif;
+  color: rgb(51, 51, 51);
+  line-height: 1.230;
+  /*width: 1260px;*/
+  /*min-width: 650px;*/
+}
+li {
+  /*list-style: none;*/
+}
+h1 {
+  font-size: 16px;
+}
+h2 {
+  display: block;
+  /*padding: 10px;*/
+  padding-left: 0;
+  font: bold 14px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+  border-bottom: 1px solid #C8C8C8;
+  padding-bottom: 5px;
+  margin: 0;
+  margin-bottom: 5px;
+}
+img {
+  max-width: 100%;
+}
+.posts {
+    padding: 0px;
+}
+.post {
+  margin-bottom: 10px;
+  display: block;
+  width: 100%;
+  clear: both;
+  position: relative;
+  float: left;
+  color: #3e3e3e;
+  border: 1px solid #e9e9e9;
+  margin: 0;
+  margin-bottom: 15px;
+  padding: 0;
+}
+.postdate {
   display: block;
   float: left;
   clear: right;
   width: 49%;
   margin-left: 10px;
   font: normal 12px Tahoma,Calibri,Verdana,Geneva,sans-serif;
-  padding-left: 15px;
+  /*padding-left: 10px;*/
 }
-.post {
-  list-style: none;
-  margin-bottom: 10px;
+.postid {
+  position: absolute;
+  color: #ffffff;
+  right: 0;
+  top: 0;
+  width: 50%;
+  padding: 4px 10px 0;
+  text-align: right;
+  font: normal 12px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+  vertical-align: middle;
+}
+.posthead {
+  background: #336c8e;
+  _background-image: none;
+  border: 1px solid #5A7F97;
+  clear: both;
+  display: block;
+  float: left;
   width: 100%;
-  color: #3e3e3e;
-};
+  color: #ffffff;
+  margin: -1px -1px 0;
+  font: normal 12px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+  padding: 4px 0;
+}
+.postbody {
+  display: block;
+  margin-left: 200px;
+border-left: 1px solid #efefef;
+background: #fafafa none;
+_background-image: none;
+padding-bottom: 1em;
+padding: 10px 10px 10px;
+}
+.user {
+  clear: right;
+  font-size: 14px;
+  font-weight: bold;
+}
+.postdetails {
+  float: left;
+  width: 100%;
+  background: #e2e6e8 none;
+}
+.userinfo {
+float: left;
+position: relative;
+width: 180px;
+padding: 10px 10px 5px;
+font-size: 11px;
+display: block;
+background: #e2e6e8 none;
+clear: both;
+}
+
+
+/* Copies */
+
+body a {
+    color: #4E4E4E;
+    text-decoration: none;
+}
+
+/**
+** ORIG CSS
+*/
+.restore body {
+	/* For breathing room between content and viewport. */
+	margin:10px;
+}
+
+.restore h1 {
+	/* 18px via YUI Fonts CSS foundation. */
+	font-size: 138.5%;
+}
+
+.restore h2 {
+	/* 16px via YUI Fonts CSS foundation. */
+	font-size: 123.1%;
+}
+
+.restore h3 {
+	/* 14px via YUI Fonts CSS foundation. */
+	font-size: 108%;
+}
+
+.restore h1,
+.restore h2,
+.restore h3 {
+	/* Top & bottom margin based on font size. */
+	margin: 1em 0;
+}
+
+.restore h1,
+.restore h2,
+.restore h3,
+.restore h4,
+.restore h5,
+.restore h6,
+.restore strong,
+.restore dt {
+	/* Bringing boldness back to headers and the strong element. */
+	font-weight: bold;
+}
+.restore optgroup {
+	font-weight:normal;
+}
+
+.restore abbr,
+.restore acronym {
+	/* Indicating to users that more info is available. */
+	border-bottom: 1px dotted #000;
+	cursor: help;
+}
+
+.restore em {
+	/* Bringing italics back to the em element. */
+	font-style: italic;
+}
+
+.restore del {
+	/* Striking deleted phrases. */
+	text-decoration: line-through;
+}
+
+.restore blockquote,
+.restore ul,
+.restore ol,
+.restore dl {
+	/* Giving blockquotes and lists room to breath. */
+	margin: 1em;
+}
+
+.restore ol,
+.restore ul,
+.restore dl {
+	/* Bringing lists on to the page with breathing room. */
+	margin-left: 2em;
+}
+
+.restore ol > li,
+.restore ol.decimal > li {
+	list-style:decimal outside;
+}
+
+.restore ol.upper-roman > li {
+	list-style:upper-roman outside;
+}
+
+.restore ol.lower-roman > li {
+	list-style:lower-roman outside;
+}
+
+.restore ol.upper-alpha > li {
+	list-style:upper-alpha outside;
+}
+
+.restore ol.lower-alpha > li {
+	list-style:lower-alpha outside;
+}
+
+.restore ul > li {
+	/* Giving UL's LIs generated disc markers. */
+	list-style: disc outside;
+}
+
+.restore dl dd {
+	/* Giving UL's LIs generated numbers. */
+	margin-left: 1em;
+}
+
+.restore th,
+.restore td {
+	/* Borders and padding to make the table readable. */
+	border: 1px solid #000000;
+	padding: 0.5em;
+}
+
+.restore th {
+	/* Distinguishing table headers from data cells. */
+	font-weight: bold;
+	text-align: center;
+}
+
+.restore caption {
+	/* Coordinated margin to match cell's padding. */
+	margin-bottom: .5em;
+	/* Centered so it doesn't blend in to other content. */
+	text-align: center;
+}
+
+.restore sup {
+	/* to preserve line-height and selector appearance */
+	vertical-align: super;
+}
+
+.restore sub {
+	/* to preserve line-height and selector appearance */
+	vertical-align: sub;
+}
+
+.restore p,
+.restore fieldset,
+.restore table,
+.restore pre {
+	/* So things don't run into each other. */
+	margin-bottom: 1em;
+}
+/* Opera requires 1px of passing to render with contemporary native chrome */
+.restore button,
+.restore input[type="checkbox"],
+.restore input[type="radio"],
+.restore input[type="reset"],
+.restore input[type="submit"] {
+	padding:1px;
+}
+
+.restore li > p {
+	margin-bottom: 0em;
+}
+
+
+/**********************************************/
+.bbcode_container {
+	margin:20px;
+	margin-top:5px;
+	display:block;
+}
+
+.bbcode_container .bbcode_desc {
+	margin-bottom:2px;
+	font-size:11px;
+}
+/*text-align should alwais be LTR for the CODE blocks*/
+.bbcode_container div.bbcode_code,
+.bbcode_container pre.bbcode_code {
+	margin:0;
+	padding:6px;
+	border:1px inset;
+	text-align:left;
+	overflow:scroll;
+	direction:ltr;
+	background:#f2f6f8 none repeat-x  ;
+	font-size:12px;
+}
+
+.bbcode_container code.bbcode_code {
+	margin:0;
+	text-align:left;
+	direction:ltr;
+	font-size:12px;
+}
+
+.bbcode_container code.bbcode_code code {
+	white-space:nowrap;
+}
+
+.bbcode_container div.bbcode_quote {
+	margin:0 10px;
+	margin-bottom: 10px;
+	-moz-border-radius: 5px;
+	-webkit-border-radius: 5px;
+	background: #f2f6f8 none   ;
+	border-radius: 5px;
+	border: 1px solid #417394;
+	font: italic  normal 13px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+	position: relative;
+	top: 0;
+}
+
+.bbcode_container .bbcode_quote_container {
+	background: transparent url(images/misc/quote-left.png) no-repeat  left;
+	display:block;
+	width: 9px;
+	height: 13px;
+	position: absolute;
+	top: 5;
+	left: -9px;
+}
+
+.bbcode_quote div.quote_container {
+	-moz-border-radius: 5px;
+	-webkit-border-radius: 5px;
+	border-radius: 5px;
+	padding: 5px 10px 5px 10px;
+}
+
+.bbcode_quote .bbcode_postedby img {
+	position: relative;
+	top: 1px;
+}
+
+.bbcode_container div.bbcode_quote.printable {
+	background:none;
+	border:none;
+}
+
+.bbcode_container div.bbcode_quote div.message {
+	/*font-style:italic;*/
+	padding:8px 0px;
+}
+
+/* fix the bug where li's in quotes are floated */
+.bbcode_container div.bbcode_quote div.message ol>li, .bbcode_container div.bbcode_quote div.message ul>li{
+	float: none;
+}
+
+/* from components.css */
+.bbcode_postedby {
+	font:   normal 12px Tahoma,Calibri,Verdana,Geneva,sans-serif;
+}
+
+.bbcode_postedby img {
+	margin:0;
+}
