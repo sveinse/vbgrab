@@ -14,6 +14,8 @@ import argparse
 # - Download "vedlagte miniatyrbilder". See post 77
 # - Change download to fetch local cache first, then try server
 # - Handle caching if default number of posts per page changes
+# - Rename attachments to ATT_FILENAME to FILENAME
+#
 
 START_URL = 'http://avforum.no/forum/showthread.php?t=126778'
 
@@ -78,6 +80,14 @@ def cleantitle(tree):
 
 def filename_pagecache(page):
     return os.path.join(TMPDIR, 'page_%04i.html' %(page))
+def filename_attcache(att):
+    return os.path.join(TMPDIR, str(att))
+def filename_image(image):
+    return os.path.join(OUTDIR, image)
+def filename_attachment(filename):
+    return os.path.join(OUTDIR, 'attachments',filename)
+def filename_out(out):
+    return os.path.join(OUTDIR, out)
 
 
 def download_page(page,url=None,use_cache=True):
@@ -113,28 +123,6 @@ def download_page(page,url=None,use_cache=True):
     return tree
 
 
-class FakeHeader(object):
-    def __init__(self,header):
-        self.h = {}
-        for l in header.splitlines():
-            s=l.split(':')
-            if len(s)==2:
-                self.h[s[0].strip()] = s[1].strip()
-    def getheader(self,header):
-        return self.h.get(header)
-
-
-class FakeUrl(object):
-    def __init__(self,header):
-        self.header = FakeHeader(header)
-    def info(self):
-        return self.header
-
-
-def filename_attcache(att):
-    return os.path.join(TMPDIR, str(att))
-
-
 def get_attachment_cache(att):
 
     fname = filename_attcache(att)
@@ -160,13 +148,15 @@ def get_attachment_cache(att):
         filename=urllib.unquote(m.group(1)).decode('utf-8')
 
     # Try ATT_filename first then filename
-    cache = os.path.join('attachments', str(att) + '_' + filename)
-    if not os.path.exists(cache):
-        cache = os.path.join('attachments', filename)
-        if not os.path.exists(cache):
+    cache = str(att) + '_' + filename
+    fcache = filename_attachment(cache)
+    if not os.path.exists(fcache):
+        cache = filename
+        fcache = filename_attachment(cache)
+        if not os.path.exists(fcache):
             return None
 
-    size = os.path.getsize(cache)
+    size = os.path.getsize(fcache)
     if size != int(header['Content-Length']):
         return None
 
@@ -188,9 +178,9 @@ def download_attachment(att,url):
     m=re.search(r'filename="(.*)"', cd)
     if m:
         filename=urllib.unquote(m.group(1)).decode('utf-8')
-    filename = os.path.join('attachments', str(att) + '_' + filename)
+    filename = str(att) + '_' + filename
 
-    log('Download attachment %s: %s' %(att,os.path.basename(filename)),debug=1)
+    log('Download attachment %s: %s' %(att,filename),debug=1)
 
     # Read data from the web
     data = req.read()
@@ -200,12 +190,10 @@ def download_attachment(att,url):
             raise Exception("Missing data from server/file, want %s bytes, got %s" %(length,len(data)))
 
     # Write cache data
-    with open(filename,'wb') as f:
+    with open(filename_attachment(filename),'wb') as f:
         f.write(data)
 
     return filename
-
-
 
 
 def parse_page(page,tree):
@@ -273,11 +261,16 @@ def parse_page(page,tree):
 ap = argparse.ArgumentParser()
 ap.add_argument('-t', '--tmpdir', help="Temp work directory", default='tmp')
 ap.add_argument('-n', '--nocache', help='Disable caching', action='store_true')
+ap.add_argument('-d', '--dir', help='Output directory')
 ap.add_argument('-D', '--debug', help='Enable debugging', action='count', default=0)
 ap.add_argument('-v', '--verbose', help='Verbose output', action='count', default=0)
+ap.add_argument('--no-images', help='Do not download images', action='store_true')
+ap.add_argument('--no-attachments', help='Do not download images', action='store_true')
+ap.add_argument('--nofirst', help='Do no load first page (use cache)', action='store_true')
 ap.add_argument('url', help="URL to download", nargs='?', default=START_URL)
 
 opts = ap.parse_args()
+OUTDIR = opts.dir
 TMPDIR = opts.tmpdir
 DEBUG = opts.debug
 VERBOSE = opts.verbose
@@ -293,12 +286,18 @@ Licensed under GPL3.0
 #-----------------------------------------------------------------------------
 log("\nDownloading first page...")
 
+if OUTDIR:
+    TMPDIR=os.path.join(OUTDIR,TMPDIR)
+
 # Ensure tmp dir
 if not os.path.exists(TMPDIR):
     os.makedirs(TMPDIR)
 
 # Load first page
-tree = download_page(0,opts.url,use_cache=False)
+if opts.nofirst:
+    tree = download_page(1,use_cache=USE_CACHE)
+else:
+    tree = download_page(0,opts.url,use_cache=False)
 
 # BASE URL for the site
 t=tree.xpath('//head/base')[0]
@@ -454,10 +453,13 @@ for image in image_fetchlist:
     num += 1
     progress(num, maxnum)
 
-    if USE_CACHE and os.path.exists(image):
+    imagefile = filename_image(image)
+
+    if USE_CACHE and os.path.exists(imagefile):
         log('Skipping image %s' %(image),debug=1)
 
-    else:
+    elif not opts.no_images:
+
         url = base + image
         log('Download image %s' %(url),debug=1)
 
@@ -466,12 +468,12 @@ for image in image_fetchlist:
             data = req.read()
 
             # Ensure dir exists
-            path = os.path.split(image)
+            path = os.path.split(imagefile)
             if not os.path.exists(path[0]):
                 os.makedirs(path[0])
 
             # Save image
-            with open(image,'wb') as f:
+            with open(imagefile,'wb') as f:
                 f.write(data)
 
         except urllib2.HTTPError as e:
@@ -488,8 +490,9 @@ if failed:
 #-----------------------------------------------------------------------------
 log("\nDownloading attachments...")
 
-if not os.path.exists('attachments'):
-    os.makedirs('attachments')
+a = os.path.join(OUTDIR,'attachments')
+if not os.path.exists(a):
+    os.makedirs(a)
 
 attachments = {}
 filenames = {}
@@ -510,10 +513,12 @@ for (att,post) in attachment_fetchlist.items():
     filename = get_attachment_cache(att)
 
     if filename:
-        # Cache is OK
-        log('Skipping attachment %s: %s' %(att,os.path.basename(filename)),debug=1)
 
-    else:
+        # Cache is OK
+        log('Skipping attachment %s: %s' %(att,filename),debug=1)
+
+    elif not opts.no_attachments:
+
         try:
 
             # Download the attachment
@@ -539,23 +544,26 @@ if failed:
 
 
 
-
-
-
-
-
-sys.exit(1)
-
-
 #-----------------------------------------------------------------------------
-print "\nCreating web data..."
+log("\nPreparing web pages...")
 num = 0
 
 img_count = 0
 img_ext = 0
+img_attachments = 0
+img_missing = 0
+img_other = 0
+img_icons = 0
+
 a_count = 0
 a_ext = 0
+a_mythread = 0
+a_othread = 0
+a_missing = 0
+a_attachments = 0
+a_other = 0
 
+# Top-level iterator for page output
 html = html.Element('ol')
 html.attrib['class'] = 'posts'
 
@@ -574,7 +582,6 @@ for post in post_list:
     # WASH links
     main = data['main']
     main.tag = 'div'
-    #main.attrib['class'] = 'postcontent'
 
     # Find all images
     images = main.xpath('.//img')
@@ -586,16 +593,23 @@ for post in post_list:
             iid=int(m.group(1))
             if iid in attachments:
                 src = 'attachments/' + attachments[iid]
+                img_attachments += 1
             elif iid in attachment_fetchlist:
                 src = 'missing-image/' + str(iid)
+                img_missing += 1
             else:
-                src = 'dead-link/' + str(iid)
+                error("Bug? Image in post %s refers to attachment %s that we don't have." %(data['num'],iid))
 
-        #clear()
-        #print src
+        elif src in image_fetchlist:
+            img_icons += 1
+
+        else:
+            img_other += 1
+
+        log('IMG ' + src, debug=2)
 
         img.attrib['src'] = src
-        if src.startswith('http://'):
+        if src.startswith('http://') or src.startswith('https://'):
             img_ext += 1
         img_count += 1
 
@@ -604,9 +618,6 @@ for post in post_list:
     for link in links:
         href = link.get('href')
 
-        #clear()
-        #print '   ',href.encode('utf-8')
-
         m=re.search('/(\d+)-.*post(\d+)$', href)
         if m:
             tid = int(m.group(1))
@@ -614,16 +625,29 @@ for post in post_list:
 
             if tid == threadid and pid in posts:
                 href = 'mylink/' + str(pid)
+                a_mythread += 1
+            else:
+                a_othread += 1
 
         else:
             m = re.search(r'attachmentid=(\d+)($|&)', href)
             if m:
                 iid=int(m.group(1))
                 if iid in attachments:
-                    src = 'attachments/' + attachments[iid]
+                    href = 'attachments/' + attachments[iid]
+                    a_attachments += 1
+                elif iid in attachment_fetchlist:
+                    href = 'missing-image/' + str(iid)
+                    a_missing += 1
+                else:
+                    error("Bug? Link in post %s refers to attachment %s that we don't have." %(data['num'],iid))
+            else:
+                a_other += 1
+
+        log('LINK' + src, debug=2)
 
         link.attrib['href'] = href
-        if href.startswith('http://'):
+        if href.startswith('http://') or href.startswith('https://'):
             a_ext += 1
         a_count += 1
 
@@ -648,14 +672,17 @@ for post in post_list:
     '''.format(**data)
 
 print
-print '    IMAGES: %s, where %s external' %(img_count,img_ext)
-print '    LINKS : %s, where %s external' %(a_count,a_ext)
+print '    IMAGES: %s, where %s attachments, %s icons, %s missing, %s external, %s other' % (
+                img_count,img_attachments,img_icons,img_missing,img_ext,img_other)
+print '    LINKS : %s, where %s to this thread, %s to other threads, %s attachments, %s missing images, %s external, %s other' % (
+                a_count,a_mythread,a_othread,a_attachments,a_missing,a_ext,a_other)
 
 
 print "\nWriting web data..."
 num = 0
 
-with open('midas.html','w') as f:
+outname = filename_out('top.html')
+with open(outname,'w') as f:
     f.write(u'''<html lang="no">
 <head>
   <meta charset="utf-8">
