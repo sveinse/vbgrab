@@ -17,27 +17,35 @@ import argparse
 # - Rename attachments to ATT_FILENAME to FILENAME
 #
 
-START_URL = 'http://avforum.no/forum/showthread.php?t=126778'
+#START_URL = 'http://avforum.no/forum/showthread.php?t=126778'
+START_URL = 'http://avforum.no/forum/showthread.php?t=95204'
 
 USE_TMP=True
 
 POST_PER_PAGE=50
+
+SCREEN_WIDTH=120
 
 # Images that are used from e.g. CSS and needs to be pulled manually
 EXTRA_IMAGES = (
     'images/misc/quote-left.png',
 )
 
+
+
+#-----------------------------------------------------------------------------
 def progress(n,max,e=''):
 
-    l=80
-    p = n*80/max
+    l=(SCREEN_WIDTH-40)
+    p = n*(SCREEN_WIDTH-40)/max
     s1 = '=' * p
     s2 = ' ' * (l-p)
     print >>sys.stderr, "    [%s%s]  #%s/%s%s\r" %(s1,s2,n,max,e),
 
+
 def clearprogress():
-    print >>sys.stderr, ' '*120+'\r',
+    print >>sys.stderr, ' '*SCREEN_WIDTH+'\r',
+
 
 def log(a,verbose=0,debug=0,clear=True):
     #print DEBUG,debug,VERBOSE,verbose
@@ -53,6 +61,7 @@ def log(a,verbose=0,debug=0,clear=True):
             clearprogress()
         print a
 
+
 def error(a):
     log('    *** ' + a)
 
@@ -61,6 +70,8 @@ def lprint(e):
     print etree.tostring(e,pretty_print=True)
 
 
+
+#-----------------------------------------------------------------------------
 def findclass(e,t,cls):
     d = e.xpath('%s[contains(concat(" ", normalize-space(@class), " "), " %s ")]' %(t,cls))
     return d
@@ -78,6 +89,8 @@ def cleantitle(tree):
     return text
 
 
+
+#-----------------------------------------------------------------------------
 def filename_pagecache(page):
     return os.path.join(TMPDIR, 'page_%04i.html' %(page))
 def filename_attcache(att):
@@ -90,6 +103,8 @@ def filename_out(out):
     return os.path.join(OUTDIR, out)
 
 
+
+#-----------------------------------------------------------------------------
 def download_page(page,url=None,use_cache=True):
 
     fname = filename_pagecache(page)
@@ -122,6 +137,260 @@ def download_page(page,url=None,use_cache=True):
     tree = html.fromstring(data)
     return tree
 
+
+def parse_page(page,tree):
+
+    posts = []
+
+    #
+    for e in tree.xpath('//ol[@id="posts"]/li'):
+
+        data = {
+            'page': page,
+        }
+
+        # POST ID
+        t = e.get('id')
+        if not t:
+            # Postens like og takk er ogsaa li elementer, men uten id
+            continue
+        m = re.search(r'post_(.*)', t)
+        if not m:
+            raise Exception("Missing post id")
+        data['post'] = int(m.group(1))
+
+        # POST COUNTER #1, #2, ...
+        t = findclass(e,'.//a','postcounter')
+        if not len(t):
+            raise Exception("Missing post number")
+        data['num'] = t[0].text
+
+        # TIME AND DATE
+        t = findclass(e,'.//span','date')
+        if not len(t):
+            raise Exception("Missing date")
+        data['date'] = t[0].text.replace(',','')
+
+        t = findclass(e,'.//span','time')
+        if not len(t):
+            raise Exception("Missing time")
+        data['time'] = t[0].text
+
+        # USERNAME
+        t = findclass(e,'.//a','username')
+        if not len(t):
+            raise Exception("Missing username")
+        data['user'] = t[0].find('strong').text
+
+        # TITLE (OPTIONAL)
+        t = findclass(e,'.//h2','title')
+        ex = ''
+        if len(t):
+            data['title'] = cleantitle(t[0])
+            ex = ':  ' + data['title']
+
+        # MAIN POST
+        t = findclass(e, './/blockquote', 'postcontent')
+        if not len(t):
+            raise Exception("Missing post text")
+        data['main'] = t[0]
+
+        log('   %-5s, %-13s %-5s, %s%s' %(data['num'],data['date'],data['time'],data['user'],ex), debug=2)
+
+        posts.append(data)
+
+    return posts
+
+
+
+#-----------------------------------------------------------------------------
+all_images = {}
+
+RE_STARTSWITH_HTTP = re.compile(r'^(https?://|mailto:)')
+RE_ATTACHMENTID  = re.compile(r'attachmentid=(\d+)($|&)')
+RE_ATTACHMENTID2 = re.compile(r'/attachments/.*/(\d+)')
+
+# FIXME, Check these:
+#  >>> ATT   [#1587]  att://91289
+#  http://avforum.no/forum/attachments/hvilket-utstyr-har-avforums-medlemmer/91289d1335999862-aktos-hjemmekino-_mg_8958.jpg
+
+def parse_image(url,pnum=None):
+
+    log('IMG  ' + url, debug=3)
+
+    # Any relative urls are replaced by absolute URLs
+    m = RE_STARTSWITH_HTTP.match(url)
+    if not m:
+        if url.startswith('/'):
+            error('URL %s starts with /, which is not handled correctly by this script' %(url))
+        url = base + url
+
+    # Consider only urls that belongs to this site
+    if url.startswith(base):
+
+        # Attachment references
+        m = RE_ATTACHMENTID.search(url)
+        if not m:
+            m = RE_ATTACHMENTID2.search(url)
+        if m:
+
+            attid=int(m.group(1))
+            src = 'att://' + str(attid)
+
+            data = {
+                'type'       : 'attachment',
+                'attachment' : attid,
+                'url'        : base + 'attachment.php?attachmentid=' + str(attid),
+            }
+
+            # Save metadata
+            if src not in all_images:
+                log('ATT   [%s]  %s' %(pnum,src), debug=2)
+                all_images[src] = data
+            #else:
+            #    log('ATT   [%s]  Not adding %s' %(pnum,src), debug=1)
+
+
+            return src
+
+        # Image references to within same site
+        else:
+
+            data = {
+                'type'     : 'icon',
+                'url'      : url,
+                'filename' : url.replace(base,''),
+            }
+
+            # Save metadata
+            if url not in all_images:
+                log('ICON  [%s]  %s' %(pnum,url), debug=2)
+                all_images[url] = data
+            #else:
+            #    log('ICON  [%s]  Not adding %s' %(pnum,url), debug=1)
+
+
+            return url
+
+    # External references
+    else:
+
+        data = {
+            'type' : 'external',
+            'url'  : url,
+        }
+
+        # Save metadata
+        if url not in all_images:
+            log('IMG   [%s]  %s' %(pnum,url), debug=2)
+            all_images[url] = data
+        #else:
+        #    log('IMG   [%s]  Not adding %s' %(pnum,url), debug=1)
+
+
+        return url
+
+
+#-----------------------------------------------------------------------------
+all_links = {}
+
+# FIXME:
+#   Fails on http://avforum.no/forum/member.php/28366-Johnnygrandis, post #2991 in Hunsbedt
+
+RE_POSTID = re.compile(r'/(\d+)-(.*post(\d+))?')
+
+def parse_link(url,pnum=None):
+
+    #log('LINK  ' + url, debug=1)
+
+    # Any relative urls are replaced by absolute URLs
+    m = RE_STARTSWITH_HTTP.match(url)
+    if not m:
+        if url.startswith('/'):
+            error('URL %s starts with /, which is not handled correctly by this script' %(url))
+        url = base + url
+
+
+    # Consider only urls that belongs to this site
+    if url.startswith(base):
+
+        # Search for thread post links
+        m=RE_POSTID.search(url)
+        if m:
+            tid = int(m.group(1))
+            src = 'post://' + str(tid)
+            pid = None
+            if m.lastindex > 1:
+                pid = int(m.group(3))
+                src += '/' + str(pid)
+
+            data = {
+                'type'   : 'post',
+                'thread' : tid,
+                'post'   : pid,
+            }
+
+            if '.php' in url and 'showthread.php' not in url:
+                error('Unable to parse non-post url %s' %(url))
+
+            else:
+                # Save metadata
+                if src not in all_links:
+                    log('POST  [%s]  %s' %(pnum,src), debug=2)
+                    all_links[src] = data
+                #else:
+                #    log('POST  [%s]  Not adding %s' %(pnum,src), debug=1)
+
+                return src
+
+
+        # Search for acttachment links
+        m = RE_ATTACHMENTID.search(url)
+        if m:
+            attid=int(m.group(1))
+            src = 'att://' + str(attid)
+
+            # Add to image download-list
+            img = parse_image(url, pnum)
+
+            data = {
+                'type'       : 'attachment',
+                'attachment' : attid,
+                'image'      : img,
+            }
+
+            # Save metadata
+            if src not in all_links:
+                log('ATT   [%s]  %s' %(pnum,src), debug=2)
+                all_links[src] = data
+            #else:
+            #    log('ATT   [%s]  Not adding %s' %(pnum,src), debug=1)
+
+            return src
+
+
+    # (Fallthrough, not just else)
+    # Handle external links
+    data = {
+        'type' : 'external',
+        'url'  : url,
+    }
+
+    # Save metadata
+    if url not in all_links:
+        log('LINK  [%s]  %s' %(pnum,url), debug=2)
+        all_links[url] = data
+    #else:
+    #    log('LINK  [%s]  Not adding %s' %(pnum,url), debug=1)
+
+    return url
+
+
+
+#-----------------------------------------------------------------------------
+
+# FIXME BELOW
+#==============
 
 def get_attachment_cache(att):
 
@@ -196,65 +465,6 @@ def download_attachment(att,url):
     return filename
 
 
-def parse_page(page,tree):
-
-    posts = []
-
-    #
-    for e in tree.xpath('//ol[@id="posts"]/li'):
-
-        data = {
-            'page': page,
-        }
-
-        # POST ID
-        t = e.get('id')
-        if not t:
-            # Postens like og takk er ogsaa li elementer, men uten id
-            continue
-        m = re.search(r'post_(.*)', t)
-        if not m:
-            raise Exception("Missing post id")
-        data['id'] = int(m.group(1))
-
-        # POST COUNTER #1, #2, ...
-        t = findclass(e,'.//a','postcounter')
-        if not len(t):
-            raise Exception("Missing post number")
-        data['num'] = t[0].text
-
-        # TIME AND DATE
-        t = findclass(e,'.//span','date')
-        if not len(t):
-            raise Exception("Missing date")
-        data['date'] = t[0].text
-
-        t = findclass(e,'.//span','time')
-        if not len(t):
-            raise Exception("Missing time")
-        data['time'] = t[0].text
-
-        # USERNAME
-        t = findclass(e,'.//a','username')
-        if not len(t):
-            raise Exception("Missing username")
-        data['user'] = t[0].find('strong').text
-
-        # TITLE (OPTIONAL)
-        t = findclass(e,'.//h2','title')
-        if len(t):
-            data['title'] = cleantitle(t[0])
-
-        # MAIN POST
-        t = findclass(e, './/blockquote', 'postcontent')
-        if not len(t):
-            raise Exception("Missing post text")
-        data['main'] = t[0]
-
-        posts.append(data)
-
-    return posts
-
 
 
 #-----------------------------------------------------------------------------
@@ -266,7 +476,8 @@ ap.add_argument('-D', '--debug', help='Enable debugging', action='count', defaul
 ap.add_argument('-v', '--verbose', help='Verbose output', action='count', default=0)
 ap.add_argument('--no-images', help='Do not download images', action='store_true')
 ap.add_argument('--no-attachments', help='Do not download images', action='store_true')
-ap.add_argument('--nofirst', help='Do no load first page (use cache)', action='store_true')
+ap.add_argument('--onlycache', help='Only use the cache', action='store_true')
+ap.add_argument('-q', '--quit', help='Quit after')
 ap.add_argument('url', help="URL to download", nargs='?', default=START_URL)
 
 opts = ap.parse_args()
@@ -294,7 +505,7 @@ if not os.path.exists(TMPDIR):
     os.makedirs(TMPDIR)
 
 # Load first page
-if opts.nofirst:
+if opts.onlycache:
     tree = download_page(1,use_cache=USE_CACHE)
 else:
     tree = download_page(0,opts.url,use_cache=False)
@@ -338,13 +549,16 @@ use_cache = [ USE_CACHE and os.path.exists(filename_pagecache(page))
               for page in range(pages+1) ]
 
 # Always redownload the last page
-prev = False
-for n in range(pages,0,-1):
-    if prev == False and use_cache[n] == True:
-        use_cache[n] = False
-        break
-    prev = use_cache[n]
+if not opts.onlycache:
+    prev = False
+    for n in range(pages,0,-1):
+        if prev == False and use_cache[n] == True:
+            use_cache[n] = False
+            break
+        prev = use_cache[n]
 
+if opts.quit == 'first':
+    sys.exit(0)
 
 
 #-----------------------------------------------------------------------------
@@ -364,16 +578,19 @@ while current_page <= pages:
         num += 1
         progress(num, post_count, ', page %s/%s' %(current_page,pages))
 
-        iid = data['id']
-        if iid in posts:
-            raise Exception("Post %s already exists" %(iid))
+        post = data['post']
+        if post in posts:
+            raise Exception("Post %s already exists" %(post))
 
-        post_list.append(iid)
-        posts[iid] = data
+        post_list.append(post)
+        posts[post] = data
 
     current_page += 1
 
 log('',clear=False)
+
+if opts.quit == 'posts':
+    sys.exit(0)
 
 
 
@@ -381,8 +598,13 @@ log('',clear=False)
 log("\nParsing links and images...")
 num = 0
 
-attachment_fetchlist = {}
-image_fetchlist = {}
+#attachment_fetchlist = {}
+#image_fetchlist = {}
+
+images = {}
+links = {}
+
+(i_num, a_num) = (0,0)
 
 for post in post_list:
 
@@ -391,54 +613,30 @@ for post in post_list:
 
     data = posts[post]
     main = data['main']
+    pnum = data['num']
 
     # Find all images we want to download
-    images = main.xpath('.//img')
-    for img in images:
+    for img in main.xpath('.//img'):
         src=img.get('src')
+        i_num += 1
+        images[src] = parse_image(src, pnum)
 
-        log('IMG  ' + src, debug=2)
-
-        m = re.search(r'attachmentid=(\d+)($|&)', src)
-        if m:
-            iid=int(m.group(1))
-            attachment_fetchlist[iid]=post
-        else:
-            image_fetchlist[src]=post
-
-    # Find all links
-    links = main.xpath('.//a')
-    for link in links:
+    for link in main.xpath('.//a'):
         href = link.get('href')
-
-        log('LINK ' + href, debug=2)
-
-        # Search for thread post links
-        m=re.search(r'/(\d+)-.*post(\d+)$', href)
-        if m:
-            tid = int(m.group(1))
-            pid = int(m.group(2))
-
-            # Proceed if link point to a post in our thread
-            if tid == threadid and pid in posts:
-                continue
-
-        # Links that points to attachments
-        m = re.search(r'attachmentid=(\d+)($|&)', href)
-        if m:
-            iid=int(m.group(1))
-            attachment_fetchlist[iid]=post
-            continue
-
-        log('    ' + href,verbose=1)
-
+        a_num += 1
+        links[href] = parse_link(href, pnum)
 
 # Manual adds
 for img in EXTRA_IMAGES:
-    if img not in image_fetchlist:
-        image_fetchlist[img] = True
+    parse_image(img)
 
 log('',clear=False)
+
+log('    %s IMAGES, %s UNIQUE' %(i_num,len(all_images)))
+log('    %s LINKS, %s UNIQUE' %(a_num,len(all_links)))
+
+if opts.quit == 'parsing':
+    sys.exit(0)
 
 
 
