@@ -204,7 +204,6 @@ def parse_page(page,tree):
 
 
 #-----------------------------------------------------------------------------
-all_images = {}
 
 RE_STARTSWITH_HTTP = re.compile(r'^(https?://|mailto:)')
 RE_ATTACHMENTID  = re.compile(r'attachmentid=(\d+)($|&)')
@@ -214,7 +213,7 @@ RE_ATTACHMENTID2 = re.compile(r'/attachments/.*/(\d+)')
 #  >>> ATT   [#1587]  att://91289
 #  http://avforum.no/forum/attachments/hvilket-utstyr-har-avforums-medlemmer/91289d1335999862-aktos-hjemmekino-_mg_8958.jpg
 
-def parse_image(url,pnum=None):
+def parse_image(url):
 
     log('IMG  ' + url, debug=3)
 
@@ -242,16 +241,7 @@ def parse_image(url,pnum=None):
                 'attachment' : attid,
                 'url'        : base + 'attachment.php?attachmentid=' + str(attid),
             }
-
-            # Save metadata
-            if src not in all_images:
-                log('ATT   [%s]  %s' %(pnum,src), debug=2)
-                all_images[src] = data
-            #else:
-            #    log('ATT   [%s]  Not adding %s' %(pnum,src), debug=1)
-
-
-            return src
+            return (src,data)
 
         # Image references to within same site
         else:
@@ -261,16 +251,7 @@ def parse_image(url,pnum=None):
                 'url'      : url,
                 'filename' : url.replace(base,''),
             }
-
-            # Save metadata
-            if url not in all_images:
-                log('ICON  [%s]  %s' %(pnum,url), debug=2)
-                all_images[url] = data
-            #else:
-            #    log('ICON  [%s]  Not adding %s' %(pnum,url), debug=1)
-
-
-            return url
+            return (url,data)
 
     # External references
     else:
@@ -279,27 +260,17 @@ def parse_image(url,pnum=None):
             'type' : 'external',
             'url'  : url,
         }
-
-        # Save metadata
-        if url not in all_images:
-            log('IMG   [%s]  %s' %(pnum,url), debug=2)
-            all_images[url] = data
-        #else:
-        #    log('IMG   [%s]  Not adding %s' %(pnum,url), debug=1)
-
-
-        return url
+        return (url,data)
 
 
 #-----------------------------------------------------------------------------
-all_links = {}
 
 # FIXME:
 #   Fails on http://avforum.no/forum/member.php/28366-Johnnygrandis, post #2991 in Hunsbedt
 
 RE_POSTID = re.compile(r'/(\d+)-(.*post(\d+))?')
 
-def parse_link(url,pnum=None):
+def parse_link(url):
 
     #log('LINK  ' + url, debug=1)
 
@@ -309,7 +280,6 @@ def parse_link(url,pnum=None):
         if url.startswith('/'):
             error('URL %s starts with /, which is not handled correctly by this script' %(url))
         url = base + url
-
 
     # Consider only urls that belongs to this site
     if url.startswith(base):
@@ -334,15 +304,7 @@ def parse_link(url,pnum=None):
                 error('Unable to parse non-post url %s' %(url))
 
             else:
-                # Save metadata
-                if src not in all_links:
-                    log('POST  [%s]  %s' %(pnum,src), debug=2)
-                    all_links[src] = data
-                #else:
-                #    log('POST  [%s]  Not adding %s' %(pnum,src), debug=1)
-
-                return src
-
+                return (src,data)
 
         # Search for acttachment links
         m = RE_ATTACHMENTID.search(url)
@@ -350,24 +312,16 @@ def parse_link(url,pnum=None):
             attid=int(m.group(1))
             src = 'att://' + str(attid)
 
-            # Add to image download-list
-            img = parse_image(url, pnum)
+            # Parse image
+            (img,imgdata) = parse_image(url)
 
             data = {
                 'type'       : 'attachment',
                 'attachment' : attid,
                 'image'      : img,
+                'imagedata'  : imgdata,
             }
-
-            # Save metadata
-            if src not in all_links:
-                log('ATT   [%s]  %s' %(pnum,src), debug=2)
-                all_links[src] = data
-            #else:
-            #    log('ATT   [%s]  Not adding %s' %(pnum,src), debug=1)
-
-            return src
-
+            return (src,data)
 
     # (Fallthrough, not just else)
     # Handle external links
@@ -375,15 +329,7 @@ def parse_link(url,pnum=None):
         'type' : 'external',
         'url'  : url,
     }
-
-    # Save metadata
-    if url not in all_links:
-        log('LINK  [%s]  %s' %(pnum,url), debug=2)
-        all_links[url] = data
-    #else:
-    #    log('LINK  [%s]  Not adding %s' %(pnum,url), debug=1)
-
-    return url
+    return (url,data)
 
 
 
@@ -601,6 +547,9 @@ num = 0
 #attachment_fetchlist = {}
 #image_fetchlist = {}
 
+all_images = {}
+all_links = {}
+
 images = {}
 links = {}
 
@@ -611,20 +560,47 @@ for post in post_list:
     num += 1
     progress(num, post_count)
 
-    data = posts[post]
-    main = data['main']
-    pnum = data['num']
+    postdata = posts[post]
+    main = postdata['main']
+    pnum = postdata['num']
 
-    # Find all images we want to download
+    # Parse all images
     for img in main.xpath('.//img'):
-        src=img.get('src')
         i_num += 1
-        images[src] = parse_image(src, pnum)
 
+        url = img.get('src')
+        (img, data) = parse_image(url)
+        all_images[url] = img
+
+        if img not in images:
+            images[img] = data
+
+            n=1
+            if data['type'] in ('attachment','icon'):
+                n=2
+            log('IMG   [%s]  %s' %(pnum,img), debug=n)
+
+    # Parse through all links
     for link in main.xpath('.//a'):
-        href = link.get('href')
         a_num += 1
-        links[href] = parse_link(href, pnum)
+
+        url = link.get('href')
+        (link, data) = parse_link(url)
+        all_links[url] = link
+
+        if link not in links:
+            links[link] = data
+
+            n=1
+            if data['type'] in ('post','attachment'):
+                n=2
+            log('LINK  [%s]  %s' %(pnum,link), debug=n)
+
+        if data['type'] == 'attachment':
+
+            # Schedule the attachment for download
+            if data['image'] not in images:
+                images[data['image']] = data['imagedata']
 
 # Manual adds
 for img in EXTRA_IMAGES:
