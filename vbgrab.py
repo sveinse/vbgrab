@@ -197,10 +197,21 @@ def parse_page(page,tree):
             ex = ':  ' + data['title']
 
         # MAIN POST
-        t = findclass(e, './/blockquote', 'postcontent')
+        #t = findclass(e, './/blockquote', 'postcontent')
+        t = findclass(e, './/div', 'content')
         if not len(t):
             raise Exception("Missing post text")
         data['main'] = t[0]
+
+        # AVATAR
+        t = findclass(e, './/a', 'postuseravatar')
+        if len(t):
+            data['avatar'] = t[0].find('img').get('src')
+
+        # ATTACHMENTS
+        #t = findclass(e, './/div', 'attachments')
+        #if len(t):
+        #        data['attachments'] = t[0]
 
         log('   %-5s, %-13s %-5s, %s%s' %(data['num'],data['date'],data['time'],data['user'],ex), debug=2)
 
@@ -459,10 +470,10 @@ def download_image(img,data):
 
     t = data['type']
     if t == 'icon':
-        return download_file(img,data['url'],data['filename'],post=data['post'])
+        return download_file(img,data['url'],data['filename'],post=data['num'])
 
     if t == 'attachment':
-        filename = download_attachment(img,data['url'],data['attachment'],post=data['post'])
+        filename = download_attachment(img,data['url'],data['attachment'],post=data['num'])
         if not filename:
             # FIXME: Possible option here: Should we rewrite URLs for missing images?
             data['filename'] = 'missing'
@@ -629,53 +640,63 @@ for post in post_list:
     main = postdata['main']
     pnum = postdata['num']
 
+    # Images
+    urls = [ img.get('src') for img in main.xpath('.//img') ]
+    if 'avatar' in postdata:
+        urls.append(postdata['avatar'])
+    if 'attachments' in postdata:
+        urls += [ img.get('src') for img in postdata['attachments'].xpath('.//img') ]
+
     # Parse all images
-    for img in main.xpath('.//img'):
+    for url in urls:
         i_num += 1
 
-        url = img.get('src')
-        (imgref, data) = parse_image(url)
-        all_images[url] = imgref
+        (img, data) = parse_image(url)
+        all_images[url] = img
 
-        if imgref not in images:
-            data['post'] = pnum
-            images[imgref] = data
+        if img not in images:
+            data['num'] = pnum
+            images[img] = data
 
             if data['type'] in ('attachment','icon'):
-                log('IMG   [%s]  %s' %(pnum,imgref), debug=2)
+                log('IMG   [%s]  %s' %(pnum,img), debug=2)
             else:
-                log('IMG   [%s]  %s' %(pnum,imgref), verbose=1)
+                log('IMG   [%s]  %s' %(pnum,img), verbose=1)
+
+    # Links
+    urls = [ link.get('href') for link in main.xpath('.//a') ]
 
     # Parse through all links
-    for link in main.xpath('.//a'):
+    for url in urls:
         a_num += 1
 
-        url = link.get('href')
-        (linkref, data) = parse_link(url)
-        all_links[url] = linkref
+        (link, data) = parse_link(url)
+        all_links[url] = link
 
-        if linkref not in links:
-            data['post'] = pnum
-            links[linkref] = data
+        if link not in links:
+            data['num'] = pnum
+            links[link] = data
 
             if data['type'] in ('post','attachment'):
-                log('LINK  [%s]  %s' %(pnum,linkref), debug=2)
+                log('LINK  [%s]  %s' %(pnum,link), debug=2)
             else:
-                log('LINK  [%s]  %s' %(pnum,linkref), verbose=1)
+                log('LINK  [%s]  %s' %(pnum,link), verbose=1)
 
         if data['type'] == 'attachment':
 
             # Schedule the attachment for download
-            if data['image'] not in images:
-                data['imagedata']['post'] = pnum
-                images[data['image']] = data['imagedata']
+            img = data['image']
+            if img not in images:
+                data['imagedata']['num'] = pnum
+                images[img] = data['imagedata']
+                del data['imagedata']
 
 # Manual adds
-for img in EXTRA_IMAGES:
-    (imgref, data) = parse_image(img)
-    all_images[url] = imgref
-    data['post'] = '-'
-    images.setdefault(imgref, data)
+for url in EXTRA_IMAGES:
+    (img, data) = parse_image(url)
+    all_images[url] = img
+    data['num'] = '-'
+    images.setdefault(img, data)
 
 log('',clear=False)
 
@@ -721,23 +742,14 @@ if opts.quit == 'download':
 
 
 #-----------------------------------------------------------------------------
-log("\nPreparing web pages...")
+log("\nRewriting links...")
 num = 0
 
 img_count = 0
-img_ext = 0
-img_attachments = 0
-img_missing = 0
-img_other = 0
-img_icons = 0
+img_rewrite = 0
 
 a_count = 0
-a_ext = 0
-a_mythread = 0
-a_othread = 0
-a_missing = 0
-a_attachments = 0
-a_other = 0
+a_rewrite = 0
 
 # Top-level iterator for page output
 html = html.Element('ol')
@@ -761,6 +773,7 @@ for post in post_list:
 
     # Find all images
     for img in main.xpath('.//img'):
+        img_count += 1
 
         url = img.get('src')
         imgref = all_images[url]
@@ -768,62 +781,63 @@ for post in post_list:
 
         if 'filename' in imgdata:
             img.attrib['src'] = imgdata['filename']
+            img_rewrite += 1
+
+    # Fixup avatar
+    if 'avatar' in data:
+        img_count += 1
+        imgref = all_images[data['avatar']]
+        imgdata = images[imgref]
+
+        if 'filename' in imgdata:
+            data['avatar'] = imgdata['filename']
+            img_rewrite += 1
 
     # Find all links
     for link in main.xpath('.//a'):
+        a_count += 1
 
         url = link.get('href')
         linkref = all_links[url]
         linkdata = links[linkref]
 
-        #m=RE_POSTID.search(href)
-        #if m:
-        #    tid = int(m.group(1))
-        #    pid = int(m.group(2))
+        t = linkdata['type']
+        if t == 'attachment':
+            imgdata = images[linkdata['image']]
+            if 'filename' in imgdata:
+                link.attrib['href'] = imgdata['filename']
+                a_rewrite += 1
 
-        #    if tid == threadid and pid in posts:
-        #        href = 'mylink/' + str(pid)
-        #        a_mythread += 1
-        #    else:
-        #        a_othread += 1
+        elif t == 'post':
+            if linkdata['thread'] == threadid:
+                if 'post' in linkdata:
+                    link.attrib['href'] = '#post' + str(linkdata['post'])
+                else:
+                    link.attrib['href'] = '#'
+                a_rewrite += 1
 
-        #else:
-        #    m = RE_ATTACHMENTID.search(href)
-        #    if m:
-        #        iid=int(m.group(1))
-        #        if iid in attachments:
-        #            href = 'attachments/' + attachments[iid]
-        #            a_attachments += 1
-        #        elif iid in attachment_fetchlist:
-        #            href = 'missing-image/' + str(iid)
-        #            a_missing += 1
-        #        else:
-        #            error("Bug? Link in post %s refers to attachment %s that we don't have." %(data['num'],iid))
-        #    else:
-        #        a_other += 1
-
-        #log('LINK' + src, debug=2)
-
-        #link.attrib['href'] = href
-        #if href.startswith('http://') or href.startswith('https://'):
-        #    a_ext += 1
-        #a_count += 1
-
+    # Convert main post to HTML
     data['main'] = etree.tostring(main,encoding='utf-8').replace('&#13;','').decode('utf-8')
 
+    data['avatar_html'] = ''
+    if 'avatar' in data:
+        data['avatar_html'] = '''<div class="avatar"><img src="{avatar}"></img></div>'''.format(**data)
+
     data['html'] = u'''
-<li class="post">
+<li class="post" id="post{post}">
   <div class="posthead">
     <span class="postdate">{date} {time}</span>
-    <span class="postid">{post} - {num}</span>
+    <span class="postid"><a href="#post{post}">{num}</a></span>
   </div>
   <div class="postdetails">
     <div class="userinfo">
       <div class="user">{user}</div>
+      {avatar_html}
     </div>
     <div class="postbody">
       {title}
       {main}
+      <div class="cleardiv"></div>
     </div>
   </div>
 </li>
@@ -832,10 +846,8 @@ for post in post_list:
 progress(num, post_count)
 log('',clear=False)
 
-#log('    IMAGES: %s, where %s attachments, %s icons, %s missing, %s external, %s other' % (
-#                img_count,img_attachments,img_icons,img_missing,img_ext,img_other))
-#log('    LINKS : %s, where %s to this thread, %s to other threads, %s attachments, %s missing images, %s external, %s other' % (
-#                a_count,a_mythread,a_othread,a_attachments,a_missing,a_ext,a_other))
+log('    IMAGES: %s, rewritten %s' % (img_count,img_rewrite))
+log('    LINKS : %s, rewritten %s' % (a_count,a_rewrite))
 
 
 
@@ -849,13 +861,14 @@ with open(outname,'w') as f:
 <head>
   <meta charset="utf-8">
 
-  <link href="vgrab.css" rel="stylesheet" />
+  <link href="css/vbgrab.css" rel="stylesheet" />
 
   <title>{title}</title>
 </head>
 
 <body>
   <h1>{title}</h1>
+
     <ol class="posts">
 
 '''.format(title=title).encode('utf-8'))
@@ -870,6 +883,9 @@ with open(outname,'w') as f:
 </body>
 </html>
 '''.encode('utf-8'))
+
+with open('vbgrab.css','rb') as f:
+    create_write(os.path.join(OUTDIR,'css','vbgrab.css'),f.read())
 
 progress(num, post_count)
 log('',clear=False)
