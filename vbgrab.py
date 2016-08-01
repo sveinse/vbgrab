@@ -4,7 +4,7 @@ import os,sys
 import urllib2
 import urllib
 import argparse
-
+import socket
 
 # FIXME:
 # ======
@@ -287,9 +287,6 @@ def parse_image(url):
 
 #-----------------------------------------------------------------------------
 
-# FIXME:
-#   Fails on http://avforum.no/forum/member.php/28366-Johnnygrandis, post #2991 in Hunsbedt
-
 RE_POSTID = re.compile(r'/(\d+)-(.*post(\d+))?')
 
 def parse_link(url):
@@ -322,8 +319,13 @@ def parse_link(url):
                 'post'   : pid,
             }
 
-            if '.php' in url and 'showthread.php' not in url:
-                error('Unable to parse non-post url %s' %(url))
+            if '.php' in url:
+                if 'member.php' in url:
+                    # Allow URLs in posts that mentiones members, just pass as is. Fixes issue with
+                    # http://avforum.no/forum/member.php/28366-Johnnygrandis, post #2991 in Hunsbedt
+                    pass
+                elif 'showthread.php' not in url:
+                    error('Unable to parse non-post url %s' %(url))
 
             else:
                 return (src,data)
@@ -429,11 +431,21 @@ def download_attachment(img,url,att,post=''):
         return filename
 
     if opts.onlycache:
+        error("[%s] Missing from cache %s" %(post,url))
         return False
 
     try:
-        # Open connection
-        req = urllib2.urlopen(url)
+        retries = 0
+        while True:
+            try:
+                # Open connection
+                req = urllib2.urlopen(url)
+                break
+            except socket.error as e:
+                print e,dir(e)
+                retries += 1
+                raise
+
         header = req.info()
 
         # Store header data
@@ -508,7 +520,7 @@ USE_CACHE = not opts.nocache
 URL = opts.url
 
 log('''vGrab v1.0 -- vBulletin thread grabber
-Copyright (C) 2015 Svein Seldal <sveinse@seldal.com>
+Copyright (C) 2015-2016 Svein Seldal <sveinse@seldal.com>
 Licensed under GPL3.0
 ''')
 
@@ -580,6 +592,9 @@ if not opts.onlycache:
             use_cache[n] = False
             break
         prev = use_cache[n]
+
+    # Download the first page always to update the local cache properly
+    use_cache[1] = False
 
 if opts.quit == 'first':
     sys.exit(0)
@@ -781,6 +796,7 @@ for post in post_list:
 
         if 'filename' in imgdata:
             img.attrib['src'] = imgdata['filename']
+            img.attrib['title'] = imgdata['filename']
             img_rewrite += 1
 
     # Fixup avatar
